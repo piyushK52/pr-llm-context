@@ -1,3 +1,23 @@
 # PR Context
 
-A simple CLI tool to pull github PR context (diff + comments) that can be fed into LLMs.
+A simple python script to pull github PR context (diff + comments) that can be fed into LLMs.
+
+# Usage
+
+1. Go to https://github.com/settings/tokens and create a personal token. Set it inside main.py for GITHUB_TOKEN_ENV_VAR.
+
+2. Make sure you have UV installed, then run:
+   ```
+   uv run main.py author_name/repo_name pr_number1 pr_number2 ...
+   ```
+
+   e.g.
+   ```
+   uv run main.py pytorch/pytorch 151848
+   ```
+
+# TODO
+- [ ] Add support for private repos
+- [ ] Reduce rate limit errors
+- [ ] Convert into a python package
+- [ ] Add support for function context trees (big one!)

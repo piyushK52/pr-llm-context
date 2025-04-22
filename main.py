@@ -1,12 +1,15 @@
 import os
 import argparse
 from github import Github, GithubException, UnknownObjectException
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
 
 # --- Configuration ---
 # Maximum combined additions and deletions for a file's diff to be included
 MAX_DIFF_LINES = 500
 # Environment variable name for the GitHub token
-GITHUB_TOKEN_ENV_VAR = 'GITHUB_TOKEN'
+GITHUB_TOKEN_ENV_VAR = os.getenv('GITHUB_TOKEN_ENV_VAR', 'YOUR_GITHUB_TOKEN')
 # Default output filename
 DEFAULT_OUTPUT_FILE = 'pr_llm_context.txt'
 
@@ -128,7 +131,7 @@ def format_pr_data_for_llm(repo_name, pr_number, g):
 def main():
     parser = argparse.ArgumentParser(description="Fetch GitHub PR conversation and file changes for LLM input.")
     parser.add_argument("repo", help="Repository name in 'owner/repo' format.")
-    parser.add_argument("pr_number", type=int, help="Pull Request number.")
+    parser.add_argument("pr_numbers", nargs='+', type=int, help="Pull Request numbers (space separated).")
     parser.add_argument("-o", "--output", default=DEFAULT_OUTPUT_FILE,
                         help=f"Output text file name (default: {DEFAULT_OUTPUT_FILE}).")
     parser.add_argument("-t", "--token", help="GitHub Personal Access Token (optional for public repos).")
@@ -137,7 +140,7 @@ def main():
     args = parser.parse_args()
 
     # Get GitHub Token
-    token = args.token or os.getenv(GITHUB_TOKEN_ENV_VAR)
+    token = args.token or GITHUB_TOKEN_ENV_VAR
     
     # Initialize GitHub client
     try:
@@ -152,22 +155,24 @@ def main():
             print("Running in public repository mode (no authentication).")
             print("Note: Rate limits will be lower and some features may be restricted.")
             
-        # Fetch and format data
-        print(f"Fetching data for {args.repo} PR #{args.pr_number}...")
-        formatted_data = format_pr_data_for_llm(args.repo, args.pr_number, g)
+        # Process each PR number
+        for pr_number in args.pr_numbers:
+            print(f"\nFetching data for {args.repo} PR #{pr_number}...")
+            formatted_data = format_pr_data_for_llm(args.repo, pr_number, g)
 
-        if formatted_data:
-            # Write to file
-            try:
-                with open(args.output, 'w', encoding='utf-8') as f:
-                    f.write(formatted_data)
-                print(f"Successfully wrote PR data to '{args.output}'")
-            except IOError as e:
-                print(f"Error writing to file '{args.output}': {e}")
+            if formatted_data:
+                # Write to file
+                output_file = args.output if len(args.pr_numbers) == 1 else f"pr_{pr_number}_{args.output}"
+                try:
+                    with open(output_file, 'w', encoding='utf-8') as f:
+                        f.write(formatted_data)
+                    print(f"Successfully wrote PR data to '{output_file}'")
+                except IOError as e:
+                    print(f"Error writing to file '{output_file}': {e}")
+                    exit(1)
+            else:
+                print(f"Failed to generate data for PR #{pr_number}.")
                 exit(1)
-        else:
-            print("Failed to generate PR data.")
-            exit(1)
             
     except GithubException as e:
         if e.status == 401:  # Unauthorized

@@ -5,6 +5,7 @@ description = "Simple script for pulling PR context for LLMs"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
+    "dotenv>=0.9.9",
     "pygithub>=2.6.1",
     "requests>=2.32.3",
 ]

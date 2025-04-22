@@ -33,4 +33,4 @@ ENV/
 .uv-cache/
 
 # User
-pr_llm*
+pr_*
