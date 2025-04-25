@@ -1,5 +1,6 @@
 import os
 import argparse
+import datetime # Added import
 from github import Github, GithubException, UnknownObjectException
 from dotenv import load_dotenv
 
@@ -10,7 +11,7 @@ load_dotenv(override=True)
 MAX_DIFF_LINES = 500
 # Environment variable name for the GitHub token
 GITHUB_TOKEN_ENV_VAR = os.getenv('GITHUB_TOKEN_ENV_VAR', 'YOUR_GITHUB_TOKEN')
-# Default output filename
+# Default *base* output filename (will be placed inside the timestamped folder)
 DEFAULT_OUTPUT_FILE = 'pr_llm_context.txt'
 
 def format_pr_data_for_llm(repo_name, pr_number, g):
@@ -129,51 +130,64 @@ def format_pr_data_for_llm(repo_name, pr_number, g):
     return "\n".join(output_lines)
 
 def main():
-    parser = argparse.ArgumentParser(description="Fetch GitHub PR conversation and file changes for LLM input.")
+    parser = argparse.ArgumentParser(description="Fetch GitHub PR conversation and file changes for LLM input, saving into a timestamped folder.")
     parser.add_argument("repo", help="Repository name in 'owner/repo' format.")
     parser.add_argument("pr_numbers", nargs='+', type=int, help="Pull Request numbers (space separated).")
+    # Updated help text for -o
     parser.add_argument("-o", "--output", default=DEFAULT_OUTPUT_FILE,
-                        help=f"Output text file name (default: {DEFAULT_OUTPUT_FILE}).")
+                        help=f"Base output filename to use within the timestamped folder (default: {DEFAULT_OUTPUT_FILE}).")
     parser.add_argument("-t", "--token", help="GitHub Personal Access Token (optional for public repos).")
     parser.add_argument("--public", action="store_true", help="Force public repository mode (no token required).")
 
     args = parser.parse_args()
 
-    # Get GitHub Token
     token = args.token or GITHUB_TOKEN_ENV_VAR
-    
-    # Initialize GitHub client
+    now = datetime.datetime.now()
+    timestamp_str = now.strftime("output_%Y_%m_%d_%H%M%S")
+    output_dir = timestamp_str
+
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+        print(f"Created output directory: '{output_dir}'")
+    except OSError as e:
+        print(f"Error creating directory '{output_dir}': {e}")
+        exit(1)
+
     try:
         if token and not args.public:
             g = Github(token)
-            # Trigger a simple API call to check authentication
             _ = g.get_user().login
             print("Successfully authenticated with GitHub.")
         else:
-            # Initialize without authentication for public repos
             g = Github()
             print("Running in public repository mode (no authentication).")
             print("Note: Rate limits will be lower and some features may be restricted.")
-            
-        # Process each PR number
+
         for pr_number in args.pr_numbers:
             print(f"\nFetching data for {args.repo} PR #{pr_number}...")
             formatted_data = format_pr_data_for_llm(args.repo, pr_number, g)
 
             if formatted_data:
-                # Write to file
-                output_file = args.output if len(args.pr_numbers) == 1 else f"pr_{pr_number}_{args.output}"
+                base_filename = args.output
+                if len(args.pr_numbers) > 1:
+                    output_filename = f"pr_{pr_number}_{base_filename}"
+                else:
+                    output_filename = base_filename
+
+                full_output_path = os.path.join(output_dir, output_filename)
+
                 try:
-                    with open(output_file, 'w', encoding='utf-8') as f:
+                    with open(full_output_path, 'w', encoding='utf-8') as f:
                         f.write(formatted_data)
-                    print(f"Successfully wrote PR data to '{output_file}'")
+                    print(f"Successfully wrote PR data to '{full_output_path}'")
                 except IOError as e:
-                    print(f"Error writing to file '{output_file}': {e}")
-                    exit(1)
+                    print(f"Error writing to file '{full_output_path}': {e}")
+                    # we can try processing next PR
+                    continue
             else:
                 print(f"Failed to generate data for PR #{pr_number}.")
-                exit(1)
-            
+                # exit(1) # Uncomment if one failure should stop everything
+
     except GithubException as e:
         if e.status == 401:  # Unauthorized
             print("Error: Invalid GitHub token.")
@@ -186,6 +200,10 @@ def main():
         else:
             print(f"Error connecting to GitHub: {e}")
             exit(1)
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        exit(1)
+
 
 if __name__ == "__main__":
     main()

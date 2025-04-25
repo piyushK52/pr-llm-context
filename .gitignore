@@ -1,3 +1,5 @@
+.DS_Store
+
 # Python
 __pycache__/
 *.py[cod]
@@ -34,3 +36,4 @@ ENV/
 
 # User
 pr_*
+output_*
