@@ -1,6 +1,6 @@
 # PR Context
 
-A simple python script to pull github PR context (diff + comments) that can be fed into LLMs.
+A simple python script to pull github PR/Issue context (diff + comments) that can be fed into LLMs.
 
 # Usage
 
@@ -8,7 +8,7 @@ A simple python script to pull github PR context (diff + comments) that can be f
 
 2. Make sure you have UV installed, then run:
    ```
-   uv run main.py author_name/repo_name pr_number1 pr_number2 ...
+   uv run main.py author_name/repo_name pr_number1 pr_number2 issue_number_1 ...
    ```
 
    e.g.
@@ -17,7 +17,5 @@ A simple python script to pull github PR context (diff + comments) that can be f
    ```
 
 # TODO
-- [ ] Add support for private repos
-- [ ] Reduce rate limit errors
 - [ ] Convert into a python package
 - [ ] Add support for function context trees (big one!)
