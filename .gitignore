@@ -37,3 +37,4 @@ ENV/
 # User
 pr_*
 output_*
+.vscode

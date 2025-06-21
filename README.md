@@ -1,6 +1,7 @@
 # PR Context
 
 A simple python script to pull github PR/Issue context (diff + comments) that can be fed into LLMs.
+UPDATE 21/6/25: Added support for commit hashes
 
 # Usage
 
@@ -8,7 +9,7 @@ A simple python script to pull github PR/Issue context (diff + comments) that ca
 
 2. Make sure you have UV installed, then run:
    ```
-   uv run main.py author_name/repo_name pr_number1 pr_number2 issue_number_1 ...
+   uv run main.py author_name/repo_name pr_number1 pr_number2 issue_number_1 commit_hash_1 ...
    ```
 
    e.g.
@@ -18,4 +19,4 @@ A simple python script to pull github PR/Issue context (diff + comments) that ca
 
 # TODO
 - [ ] Convert into a python package
-- [ ] Add support for function context trees (big one!)
+

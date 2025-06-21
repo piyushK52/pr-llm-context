@@ -1,20 +1,74 @@
 import os
 import argparse
 import datetime
-from github import Github, GithubException, UnknownObjectException, Repository, Issue # Added Issue import
+from github import Github, GithubException, UnknownObjectException, Repository, Issue, Commit # Added Issue and Commit import
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
 # --- Configuration ---
-# Maximum combined additions and deletions for a file's diff to be included (for PRs)
+# Maximum combined additions and deletions for a file's diff to be included (for PRs and Commits)
 MAX_DIFF_LINES = 500
 # Environment variable name for the GitHub token
 GITHUB_TOKEN_ENV_VAR = os.getenv('GITHUB_TOKEN_ENV_VAR', 'YOUR_GITHUB_TOKEN')
 # Default *base* output filename prefix (will be placed inside the timestamped folder)
-DEFAULT_OUTPUT_PREFIX = 'item' # Changed from 'pr_llm_context.txt'
+DEFAULT_OUTPUT_PREFIX = 'item'
 
 # --- Formatting Functions ---
+
+def format_commit_data_for_llm(repo: Repository, commit_sha: str):
+    """
+    Fetches Commit details and file changes, then formats them into
+    a text string suitable for an LLM.
+    """
+    commit = repo.get_commit(commit_sha)
+    output_lines = []
+
+    # --- Commit Details ---
+    output_lines.append(f"### GitHub Commit Analysis ###")
+    output_lines.append(f"Repository: {repo.full_name}")
+    output_lines.append(f"SHA: {commit.sha}")
+    if commit.author:
+        output_lines.append(f"Author: {commit.author.login} ({commit.commit.author.name})")
+    if commit.committer:
+        output_lines.append(f"Committer: {commit.committer.login} ({commit.commit.committer.name})")
+    output_lines.append(f"Date: {commit.commit.author.date}")
+    output_lines.append("\n---\n")
+
+    # --- Commit Message ---
+    output_lines.append(f"### Commit Message ###")
+    output_lines.append(commit.commit.message if commit.commit.message else "[No commit message]")
+    output_lines.append("\n---\n")
+
+    # --- File Changes (Diffs) ---
+    output_lines.append(f"### File Changes (Ignoring files with >{MAX_DIFF_LINES} lines changed) ###\n")
+
+    files_in_commit = list(commit.files)
+    total_files = len(files_in_commit)
+
+    if total_files > 0:
+        file_count = 0
+        for file in files_in_commit:
+            file_count += 1
+            output_lines.append(f"--- File {file_count}/{total_files}: {file.filename} ---")
+            output_lines.append(f"Status: {file.status}")
+            output_lines.append(f"Changes: +{file.additions} / -{file.deletions}")
+
+            total_changes = file.additions + file.deletions
+            if total_changes > MAX_DIFF_LINES:
+                output_lines.append(f"[Diff skipped: Exceeds line limit ({total_changes} > {MAX_DIFF_LINES} lines)]")
+            elif file.patch:
+                 output_lines.append("```diff")
+                 output_lines.append(file.patch)
+                 output_lines.append("```")
+            else:
+                output_lines.append("[No diff available or applicable]")
+            output_lines.append("\n")
+    else:
+        output_lines.append("[No files changed in this commit]")
+
+    output_lines.append("\n### End of Commit Analysis ###")
+    return "\n".join(output_lines)
 
 def format_issue_data_for_llm(repo: Repository, issue: Issue):
     """
@@ -32,7 +86,7 @@ def format_issue_data_for_llm(repo: Repository, issue: Issue):
 
     # --- Issue Details ---
     output_lines.append(f"### GitHub Issue Analysis ###")
-    output_lines.append(f"Repository: {repo.full_name}") # Use full_name for clarity
+    output_lines.append(f"Repository: {repo.full_name}")
     output_lines.append(f"Issue Number: #{issue.number}")
     output_lines.append(f"Title: {issue.title}")
     output_lines.append(f"Author: {issue.user.login}")
@@ -49,7 +103,7 @@ def format_issue_data_for_llm(repo: Repository, issue: Issue):
     if issue.milestone:
         output_lines.append(f"Milestone: {issue.milestone.title}")
 
-    output_lines.append("\n---\n") # Separator
+    output_lines.append("\n---\n")
 
     # --- Issue Description (Body) ---
     output_lines.append(f"### Issue Description ###")
@@ -104,7 +158,7 @@ def format_pr_data_for_llm(repo: Repository, pr_number: int):
     output_lines.append(f"Deletions: {pr.deletions}")
 
 
-    output_lines.append("\n---\n") # Separator
+    output_lines.append("\n---\n")
 
     # --- PR Description (Body) ---
     output_lines.append(f"### PR Description ###")
@@ -130,7 +184,7 @@ def format_pr_data_for_llm(repo: Repository, pr_number: int):
     review_comments = pr.get_review_comments()
     if review_comments.totalCount > 0:
         for comment in review_comments:
-            output_lines.append(f"\n* Comment by {comment.user.login} at {comment.created_at} on {comment.path} (line ~{comment.line}):") # Position might be more complex
+            output_lines.append(f"\n* Comment by {comment.user.login} at {comment.created_at} on {comment.path} (line ~{comment.line}):")
             output_lines.append(f"    Relevant Code Diff:\n    ```diff\n{comment.diff_hunk}\n    ```")
             output_lines.append(f"    Comment:\n    ```\n    {comment.body}\n    ```")
     else:
@@ -175,7 +229,7 @@ def format_pr_data_for_llm(repo: Repository, pr_number: int):
                  output_lines.append(file.patch)
                  output_lines.append("```")
             else:
-                output_lines.append("[No diff available or applicable (e.g., binary file, large file, deleted file with no history)]")
+                output_lines.append("[No diff available or applicable]")
             output_lines.append("\n") # Add newline separation between files
     else:
         output_lines.append("[No files changed in this PR]")
@@ -187,13 +241,12 @@ def format_pr_data_for_llm(repo: Repository, pr_number: int):
 # --- Main Execution ---
 
 def main():
-    parser = argparse.ArgumentParser(description="Fetch GitHub Issue or PR data for LLM input, saving into a timestamped folder.")
+    parser = argparse.ArgumentParser(description="Fetch GitHub Issue, PR, or Commit data for LLM input, saving into a timestamped folder.")
     parser.add_argument("repo", help="Repository name in 'owner/repo' format.")
     # Changed argument name and help text
-    parser.add_argument("item_numbers", nargs='+', type=int, help="Issue or Pull Request numbers (space separated).")
-    # Changed -o to be a prefix, not a full filename
+    parser.add_argument("items", nargs='+', type=str, help="Issue/PR numbers or Commit SHAs (space separated).")
     parser.add_argument("-o", "--output", default=DEFAULT_OUTPUT_PREFIX,
-                        help=f"Base output filename prefix to use within the timestamped folder (default: {DEFAULT_OUTPUT_PREFIX}). Example: 'my_prefix' -> 'my_prefix_issue_123.txt'")
+                        help=f"Base output filename prefix to use within the timestamped folder (default: {DEFAULT_OUTPUT_PREFIX}).")
     parser.add_argument("-t", "--token", help="GitHub Personal Access Token (optional for public repos).")
     parser.add_argument("--public", action="store_true", help="Force public repository mode (no token required).")
 
@@ -252,12 +305,15 @@ def main():
 
 
     # --- Process Each Item ---
-    for item_number in args.item_numbers:
-        print(f"\nProcessing {args.repo} Item #{item_number}...")
+    for item_str in args.items:
+        print(f"\nProcessing {args.repo} Item '{item_str}'...")
         formatted_data = None
         item_type = "unknown"
+        item_id_for_filename = item_str # Use the original string for filename
 
         try:
+            # Try to convert to int. If it works, it's an Issue or PR number.
+            item_number = int(item_str)
             issue = repo.get_issue(item_number)
             if issue.pull_request:
                 print(f"Item #{item_number} is a Pull Request.")
@@ -268,22 +324,34 @@ def main():
                 item_type = "issue"
                 formatted_data = format_issue_data_for_llm(repo, issue)
 
+        except ValueError:
+            # If conversion to int fails, treat it as a commit SHA.
+            print(f"Item '{item_str}' appears to be a Commit SHA.")
+            item_type = "commit"
+            try:
+                formatted_data = format_commit_data_for_llm(repo, item_str)
+                # Use short SHA for cleaner filename
+                item_id_for_filename = item_str[:7]
+            except UnknownObjectException:
+                print(f"Error: Commit with SHA '{item_str}' not found in '{repo.full_name}'. Skipping.")
+                continue
+            except Exception as e:
+                print(f"An unexpected error occurred processing Commit '{item_str}': {e}. Skipping.")
+                continue
+
         except UnknownObjectException:
             print(f"Error: Item #{item_number} not found in repository '{repo.full_name}'. Skipping.")
-            continue # Skip to the next item number
+            continue
         except GithubException as e:
-            # Handle potential errors during fetching specific issue/pr details (e.g., rate limit hit mid-script)
-            print(f"Error fetching details for Item #{item_number}: {e}. Skipping.")
-            continue # Skip to the next item number
+            print(f"Error fetching details for Item '{item_str}': {e}. Skipping.")
+            continue
         except Exception as e:
-             print(f"An unexpected error occurred processing Item #{item_number}: {e}. Skipping.")
-             continue # Skip to the next item number
-
+             print(f"An unexpected error occurred processing Item '{item_str}': {e}. Skipping.")
+             continue
 
         # --- Write Output File ---
         if formatted_data:
-            # Construct filename using the determined type and number
-            base_filename = f"{args.output}_{item_type}_{item_number}.txt"
+            base_filename = f"{args.output}_{item_type}_{item_id_for_filename}.txt"
             full_output_path = os.path.join(output_dir, base_filename)
 
             try:
@@ -292,12 +360,9 @@ def main():
                 print(f"Successfully wrote {item_type.upper()} data to '{full_output_path}'")
             except IOError as e:
                 print(f"Error writing to file '{full_output_path}': {e}")
-                # Continue processing next item even if write fails for one
                 continue
         else:
-            # This case might occur if formatting functions return None unexpectedly,
-            # but primary errors should be caught above.
-            print(f"Failed to generate formatted data for {item_type.upper()} #{item_number}.")
+            print(f"Failed to generate formatted data for Item '{item_str}'.")
 
 
 if __name__ == "__main__":
